@@ -1,0 +1,96 @@
+# Production stack: PostgreSQL + Django (gunicorn) + worker + Nginx (React build).
+#   cp .env.example .env   # then edit it
+#   docker compose up -d --build
+name: focus-crm
+
+x-backend: &backend
+  build: ./backend
+  image: focus-crm-backend
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    POSTGRES_HOST: db
+    POSTGRES_PORT: "5432"
+  volumes:
+    - media:/app/media
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-focus_crm}
+      POSTGRES_USER: ${POSTGRES_USER:-focus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    <<: *backend
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Sends queued WhatsApp messages and runs the follow-up automations.
+  worker:
+    <<: *backend
+    command: ["python", "manage.py", "run_worker"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      RUN_MIGRATIONS: "0"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Links a WhatsApp account by QR code (MESSAGING_BACKEND=whatsapp_web).
+  # Internal only: no published port. Enabled with COMPOSE_PROFILES=whatsapp-web.
+  whatsapp:
+    build: ./whatsapp-gateway
+    image: focus-crm-whatsapp
+    profiles: ["whatsapp-web"]
+    restart: unless-stopped
+    environment:
+      GATEWAY_TOKEN: ${WHATSAPP_GATEWAY_TOKEN:-}
+      CRM_INCOMING_URL: http://backend:8000/api/whatsapp/incoming/
+    volumes:
+      - wa_session:/data
+    shm_size: 512mb # Chromium needs more shared memory than Docker's 64 MB default
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build: ./frontend
+    image: focus-crm-web
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8200}:80"
+    volumes:
+      - type: volume
+        source: media
+        target: /srv/media
+        read_only: true
+        volume:
+          nocopy: true
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  media:
+  wa_session: # linked WhatsApp session — treat like a password

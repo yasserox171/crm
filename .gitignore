@@ -1,0 +1,21 @@
+# Secrets and data (never commit)
+.env
+.env.*
+!.env.example
+backups/
+*.sql
+*.sql.gz
+backend/media/
+
+# Dependencies and build output
+node_modules/
+backend/.venv/
+backend/staticfiles/
+frontend/dist/
+*.tsbuildinfo
+
+# Caches
+__pycache__/
+*.pyc
+.ruff_cache/
+.DS_Store

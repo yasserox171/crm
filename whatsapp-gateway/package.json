@@ -1,0 +1,20 @@
+{
+  "name": "focus-crm-whatsapp-gateway",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Links a WhatsApp account (QR code) and sends/receives messages for the Centre Focus CRM.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "whatsapp-web.js": "1.34.7"
+  },
+  "overrides": {
+    "puppeteer": "25.14.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
